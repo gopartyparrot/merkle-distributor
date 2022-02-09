@@ -68,7 +68,7 @@ pub mod merkle_distributor {
         );
         program_bitmap::cpi::initialize(cpi_ctx, max_num_nodes + 8)?;
         bitmap.reload()?;
-        require!(bitmap.capacity() >= max_num_nodes, ErrorCode::InvalidBitmap);
+        require!(bitmap.capacity() >= max_num_nodes, InvalidParam);
 
         Ok(())
     }
@@ -84,7 +84,9 @@ pub mod merkle_distributor {
         let distributor = &ctx.accounts.distributor;
         require!(claimant_account.is_signer, Unauthorized);
 
-        require!(!ctx.accounts.bitmap.is_set(index), DropAlreadyClaimed);
+        let bitmap = &mut ctx.accounts.bitmap;
+        require!(index < distributor.max_num_nodes, InvalidParam);
+        require!(!bitmap.is_set(index), DropAlreadyClaimed);
 
         // Verify the merkle proof.
         let node = anchor_lang::solana_program::keccak::hashv(&[
@@ -107,7 +109,7 @@ pub mod merkle_distributor {
         let cpi_ctx = CpiContext::new_with_signer(
             ctx.accounts.bitmap_program.to_account_info(),
             program_bitmap::cpi::accounts::Admin {
-                ob: ctx.accounts.bitmap.to_account_info(),
+                ob: bitmap.to_account_info(),
                 owner: ctx.accounts.distributor.to_account_info(),
             },
             bitmap_seeds,
@@ -271,6 +273,6 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Token account owner did not match intended owner")]
     OwnerMismatch,
-    #[msg("Invalid bitmap")]
-    InvalidBitmap,
+    #[msg("Invalid param")]
+    InvalidParam,
 }
