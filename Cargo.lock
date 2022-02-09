@@ -753,7 +753,7 @@ version = "0.2.6"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
- "program-bitmap",
+ "program-bitmap 0.1.0 (git+https://github.com/gopartyparrot/program-bitmap?rev=70040882e7912265bcb4de3b7e8ef44b6ac76ef9)",
  "vipers",
 ]
 
@@ -885,6 +885,14 @@ dependencies = [
 [[package]]
 name = "program-bitmap"
 version = "0.1.0"
+dependencies = [
+ "anchor-lang",
+]
+
+[[package]]
+name = "program-bitmap"
+version = "0.1.0"
+source = "git+https://github.com/gopartyparrot/program-bitmap?rev=70040882e7912265bcb4de3b7e8ef44b6ac76ef9#70040882e7912265bcb4de3b7e8ef44b6ac76ef9"
 dependencies = [
  "anchor-lang",
 ]
