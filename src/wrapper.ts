@@ -105,10 +105,7 @@ export class MerkleDistributorWrapper {
     };
   }
 
-  async claimIX(
-    args: ClaimArgs,
-    payer: PublicKey
-  ): Promise<TransactionInstruction> {
+  async claimIX(args: ClaimArgs): Promise<TransactionInstruction> {
     const { amount, claimant, index, proof } = args;
     return this.program.instruction.claim(
       index,
@@ -121,7 +118,6 @@ export class MerkleDistributorWrapper {
           from: this.distributorATA,
           to: await getATAAddress({ mint: this.data.mint, owner: claimant }),
           claimant,
-          payer,
           systemProgram: SystemProgram.programId,
           tokenProgram: TOKEN_PROGRAM_ID,
           bitmapProgram: this.sdk.bitmapProgram.programId,
@@ -132,9 +128,7 @@ export class MerkleDistributorWrapper {
 
   async claim(args: ClaimArgs): Promise<TransactionEnvelope> {
     const { provider } = this.sdk;
-    const tx = new TransactionEnvelope(provider, [
-      await this.claimIX(args, provider.wallet.publicKey),
-    ]);
+    const tx = new TransactionEnvelope(provider, [await this.claimIX(args)]);
     const { instruction } = await getOrCreateATA({
       provider,
       mint: this.data.mint,
