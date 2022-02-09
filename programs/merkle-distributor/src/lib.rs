@@ -203,15 +203,19 @@ pub struct Claim<'info> {
     pub from: Account<'info, TokenAccount>,
 
     /// Account to send the claimed tokens to.
+    ///
+    /// NOTE: this is older saber code that checks to.owner in the processor.
+    /// Could migrate to anchor constraint in the future.
     #[account(mut)]
     pub to: Account<'info, TokenAccount>,
 
     /// Who is claiming the tokens.
+    ///
+    /// NOTE: if we want to allow admin or anyone to claim, we can remove the
+    /// Signer constraint here, as long as the to.owner constraint is satisfied.
+    ///
+    /// This allows us to clear out the merkle tree, and recover memory costs.
     pub claimant: Signer<'info>,
-
-    /// Payer of the claim.
-    #[account(mut)]
-    pub payer: Signer<'info>,
 
     /// The [System] program.
     pub system_program: Program<'info, System>,
