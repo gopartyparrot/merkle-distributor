@@ -20,11 +20,11 @@ use vipers::prelude::*;
 
 pub mod merkle_proof;
 
-declare_id!("MRKGLMizK9XSTaD1d1jbVkdHZbQVCSnPpYiTw9aKQv8");
+declare_id!("Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS");
 
-/// The [merkle_distributor] program.
+/// The [png_merkle_distributor] program.
 #[program]
-pub mod merkle_distributor {
+pub mod png_merkle_distributor {
     #[allow(deprecated)]
     use vipers::assert_ata;
 
@@ -55,6 +55,21 @@ pub mod merkle_distributor {
         Ok(())
     }
 
+    pub fn update_distributor(
+        ctx: Context<UpdateDistributor>,
+        root: [u8; 32],
+        max_total_claim: u64,
+        max_num_nodes: u64,
+    ) -> ProgramResult {
+        let distributor = &mut ctx.accounts.distributor;
+
+        distributor.root = root;
+        distributor.max_total_claim = max_total_claim;
+        distributor.max_num_nodes = max_num_nodes;
+
+        Ok(())
+    }
+
     /// Claims tokens from the [MerkleDistributor].
     #[allow(deprecated)]
     pub fn claim(
@@ -67,8 +82,8 @@ pub mod merkle_distributor {
         let claim_status = &mut ctx.accounts.claim_status;
         require!(
             // This check is redundant, we should not be able to initialize a claim status account at the same key.
-            !claim_status.is_claimed && claim_status.claimed_at == 0,
-            DropAlreadyClaimed
+            claim_status.claimed_amount < amount,
+            NoClaimableAmount
         );
 
         let claimant_account = &ctx.accounts.claimant;
@@ -86,9 +101,10 @@ pub mod merkle_distributor {
             InvalidProof
         );
 
+        let claim_amount = amount.checked_sub(claim_status.claimed_amount).unwrap();
+
         // Mark it claimed and send the tokens.
-        claim_status.amount = amount;
-        claim_status.is_claimed = true;
+        claim_status.claimed_amount = amount;
         let clock = Clock::get()?;
         claim_status.claimed_at = clock.unix_timestamp;
         claim_status.claimant = claimant_account.key();
@@ -118,7 +134,7 @@ pub mod merkle_distributor {
                 },
             )
             .with_signer(&[&seeds[..]]),
-            amount,
+            claim_amount,
         )?;
 
         let distributor = &mut ctx.accounts.distributor;
@@ -128,22 +144,25 @@ pub mod merkle_distributor {
             distributor.total_amount_claimed <= distributor.max_total_claim,
             ExceededMaxClaim
         );
-        distributor.num_nodes_claimed = unwrap_int!(distributor.num_nodes_claimed.checked_add(1));
-        require!(
-            distributor.num_nodes_claimed <= distributor.max_num_nodes,
-            ExceededMaxNumNodes
-        );
+        if claim_amount == amount {
+            distributor.num_nodes_claimed =
+                unwrap_int!(distributor.num_nodes_claimed.checked_add(1));
+            require!(
+                distributor.num_nodes_claimed <= distributor.max_num_nodes,
+                ExceededMaxNumNodes
+            );
+        }
 
         emit!(ClaimedEvent {
             index,
             claimant: claimant_account.key(),
-            amount
+            claim_amount
         });
         Ok(())
     }
 }
 
-/// Accounts for [merkle_distributor::new_distributor].
+/// Accounts for [png_merkle_distributor::new_distributor].
 #[derive(Accounts)]
 #[instruction(bump: u8)]
 pub struct NewDistributor<'info> {
@@ -152,13 +171,13 @@ pub struct NewDistributor<'info> {
 
     /// [MerkleDistributor].
     #[account(
-        init,
-        seeds = [
-            b"MerkleDistributor".as_ref(),
-            base.key().to_bytes().as_ref()
-        ],
-        bump = bump,
-        payer = payer
+    init,
+    seeds = [
+    b"MerkleDistributor".as_ref(),
+    base.key().to_bytes().as_ref()
+    ],
+    bump = bump,
+    payer = payer
     )]
     pub distributor: Account<'info, MerkleDistributor>,
 
@@ -173,7 +192,21 @@ pub struct NewDistributor<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// [merkle_distributor::claim] accounts.
+/// Accounts for [png_merkle_distributor::new_distributor].
+#[derive(Accounts)]
+pub struct UpdateDistributor<'info> {
+    /// Base key of the distributor.
+    pub base: Signer<'info>,
+
+    #[account(mut, has_one = base @ ErrorCode::DistributorCreatorMismatch)]
+    pub distributor: Account<'info, MerkleDistributor>,
+
+    /// Payer to create the distributor.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+}
+
+/// [png_merkle_distributor::claim] accounts.
 #[derive(Accounts)]
 #[instruction(_bump: u8, index: u64)]
 pub struct Claim<'info> {
@@ -183,14 +216,14 @@ pub struct Claim<'info> {
 
     /// Status of the claim.
     #[account(
-        init,
-        seeds = [
-            b"ClaimStatus".as_ref(),
-            index.to_le_bytes().as_ref(),
-            distributor.key().to_bytes().as_ref()
-        ],
-        bump = _bump,
-        payer = payer
+    init_if_needed,
+    seeds = [
+    b"ClaimStatus".as_ref(),
+    index.to_le_bytes().as_ref(),
+    distributor.key().to_bytes().as_ref()
+    ],
+    bump = _bump,
+    payer = payer
     )]
     pub claim_status: Account<'info, ClaimStatus>,
 
@@ -246,14 +279,12 @@ pub struct MerkleDistributor {
 #[account]
 #[derive(Default)]
 pub struct ClaimStatus {
-    /// If true, the tokens have been claimed.
-    pub is_claimed: bool,
     /// Authority that claimed the tokens.
     pub claimant: Pubkey,
     /// When the tokens were claimed.
     pub claimed_at: i64,
     /// Amount of tokens claimed.
-    pub amount: u64,
+    pub claimed_amount: u64,
 }
 
 /// Emitted when tokens are claimed.
@@ -264,7 +295,7 @@ pub struct ClaimedEvent {
     /// User that claimed.
     pub claimant: Pubkey,
     /// Amount of tokens to distribute.
-    pub amount: u64,
+    pub claim_amount: u64,
 }
 
 /// Error codes.
@@ -282,4 +313,8 @@ pub enum ErrorCode {
     Unauthorized,
     #[msg("Token account owner did not match intended owner")]
     OwnerMismatch,
+    #[msg("Base account not match distributor creator")]
+    DistributorCreatorMismatch,
+    #[msg("no claimable amount")]
+    NoClaimableAmount,
 }
